@@ -11,8 +11,10 @@
   "env": {
     "APP_ENV": "production",
     "APP_DEBUG": "false",
+    "CACHE_STORE": "database",
     "LOG_CHANNEL": "stderr",
     "QUEUE_CONNECTION": "sync",
+    "SESSION_DRIVER": "database",
     "VIEW_COMPILED_PATH": "/tmp/views"
   },
   "routes": [

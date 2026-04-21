@@ -50,7 +50,7 @@ Karena itu, pada deploy ini:
 
 4. Tambahkan environment variables berikut di dashboard Vercel
 
-## Environment variables wajib
+## Environment variables wajib di dashboard
 
 ```env
 APP_NAME=SISANTRI
@@ -65,7 +65,13 @@ DB_PORT=3306
 DB_DATABASE=sisantri
 DB_USERNAME=USERNAME_DATABASE
 DB_PASSWORD=PASSWORD_DATABASE
+```
 
+## Sudah diset default lewat `vercel.json`
+
+Nilai berikut sudah ikut terbawa saat deploy, jadi tidak wajib diisi ulang di dashboard kecuali Anda ingin override:
+
+```env
 CACHE_STORE=database
 SESSION_DRIVER=database
 QUEUE_CONNECTION=sync
