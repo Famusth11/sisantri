@@ -2,7 +2,6 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,8 +18,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if (app()->environment('production')) {
-            DB::connection()->disableQueryLog();
-        }
+        // Keep boot side-effect free so serverless requests do not fail
+        // before a route actually needs the database.
     }
 }

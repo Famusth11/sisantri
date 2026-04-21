@@ -31,6 +31,8 @@ Karena itu, pada deploy ini:
 - Laravel dijalankan lewat `api/index.php`
 - asset Vite dibuild saat proses deploy
 - queue di-set ke `sync`
+- session di-set ke `cookie`
+- cache di-set ke `array`
 - compiled Blade view diarahkan ke `/tmp/views`
 
 ## File yang sudah disiapkan di repo
@@ -72,8 +74,8 @@ DB_PASSWORD=PASSWORD_DATABASE
 Nilai berikut sudah ikut terbawa saat deploy, jadi tidak wajib diisi ulang di dashboard kecuali Anda ingin override:
 
 ```env
-CACHE_STORE=database
-SESSION_DRIVER=database
+CACHE_STORE=array
+SESSION_DRIVER=cookie
 QUEUE_CONNECTION=sync
 LOG_CHANNEL=stderr
 VIEW_COMPILED_PATH=/tmp/views
@@ -118,6 +120,14 @@ php artisan migrate --force
 ```
 
 Atau import dari dump `.sql`.
+
+Karena session dan cache sudah tidak memakai database di Vercel, tabel aplikasi yang tetap wajib tersedia minimal adalah:
+
+- `users`
+- `santri`
+- `absensi`
+- `jadwal_diniyah`
+- tabel domain lain yang dipakai fitur operasional
 
 ## Generate APP_KEY
 
