@@ -83,6 +83,11 @@
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         box-shadow: 0 4px 12px rgba(15, 92, 77, 0.15);
     }
+    .page-table tbody tr.quick-select-row:hover {
+        background: #f8f9fa;
+        transform: none;
+        box-shadow: none;
+    }
     .form-control, .form-select {
         border-radius: 12px;
         border: 2px solid var(--surface-soft);
@@ -91,6 +96,25 @@
     .form-control:focus, .form-select:focus {
         border-color: var(--brand-dark);
         box-shadow: 0 0 0 0.2rem rgba(15, 92, 77, 0.18);
+    }
+    .jadwal-search-group {
+        position: relative;
+    }
+    .jadwal-search-group .form-control {
+        padding-left: 2.65rem;
+    }
+    .jadwal-search-icon {
+        position: absolute;
+        left: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #607066;
+        pointer-events: none;
+    }
+    .jadwal-search-info {
+        color: #607066;
+        font-size: 0.82rem;
+        min-height: 1.1rem;
     }
     .status-select {
         border-radius: 12px;
@@ -105,22 +129,36 @@
     }
     .status-radio-group {
         display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
+        flex-wrap: nowrap;
+        gap: 8px;
+        justify-content: flex-start;
+        min-width: 328px;
     }
     .status-radio-option {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
-        padding: 6px 10px;
+        width: 76px;
+        min-height: 36px;
+        padding: 6px 8px;
         border: 1px solid var(--line-soft);
-        border-radius: 999px;
+        border-radius: 10px;
         background: #fff;
-        font-size: 0.9rem;
+        font-size: 0.86rem;
+        line-height: 1;
         cursor: pointer;
+        white-space: nowrap;
     }
     .status-radio-option input[type="radio"] {
         margin: 0;
+        flex: 0 0 auto;
+    }
+    .status-radio-option:has(input[type="radio"]:checked) {
+        border-color: var(--brand);
+        background: var(--surface-soft);
+        color: var(--brand-dark);
+        font-weight: 600;
     }
     .stats-card {
         border-radius: 16px;
@@ -152,7 +190,55 @@
         contain-intrinsic-size: 560px;
     }
     .diniyah-table {
-        min-width: 880px;
+        min-width: 1180px;
+        table-layout: fixed;
+    }
+    .diniyah-table th,
+    .diniyah-table td {
+        white-space: nowrap;
+    }
+    .diniyah-col-id {
+        width: 130px;
+    }
+    .diniyah-col-nama {
+        width: 280px;
+    }
+    .diniyah-col-kelas {
+        width: 110px;
+    }
+    .diniyah-col-golongan {
+        width: 150px;
+    }
+    .diniyah-col-pengampu {
+        width: 180px;
+    }
+    .diniyah-col-status {
+        width: 360px;
+    }
+    .quick-select-label {
+        flex: 0 0 auto;
+        color: #42544b;
+    }
+    .quick-select-panel {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        width: 100%;
+    }
+    .quick-select-actions {
+        display: grid;
+        grid-template-columns: repeat(4, 120px);
+        gap: 8px;
+        max-width: 100%;
+    }
+    .quick-select-actions .btn {
+        min-height: 36px;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        white-space: nowrap;
+        width: 100%;
     }
     .diniyah-scroll-hint {
         display: none;
@@ -184,11 +270,21 @@
             font-size: 0.98rem;
         }
         .status-radio-group {
-            gap: 0.45rem;
+            gap: 0.4rem;
+            min-width: 304px;
         }
         .status-radio-option {
-            padding: 0.4rem 0.65rem;
-            font-size: 0.84rem;
+            width: 70px;
+            min-height: 34px;
+            padding: 0.4rem 0.5rem;
+            font-size: 0.8rem;
+        }
+        .quick-select-actions {
+            grid-template-columns: repeat(2, 116px);
+            gap: 6px;
+        }
+        .quick-select-actions .btn {
+            font-size: 0.76rem;
         }
         .diniyah-table-wrap {
             margin: 0 -0.35rem;
@@ -212,6 +308,10 @@
         .pagination-summary {
             text-align: left;
         }
+        .quick-select-panel {
+            align-items: flex-start;
+            flex-direction: column;
+        }
     }
 </style>
 
@@ -233,18 +333,54 @@
                             <a href="{{ route('jadwal_diniyah.index') }}" class="btn btn-sm btn-outline-light">
                                 Atur Jadwal Diniyah
                             </a>
+                            <a href="{{ route('jadwal_diniyah.index', array_filter([
+                                'tahun_ajaran' => $activeScheduleInfo['tahun_ajaran'] ?? null,
+                                'semester' => $activeScheduleInfo['semester'] ?? null,
+                                'open_add' => 1,
+                            ])) }}" class="btn btn-sm btn-light text-success">
+                                <i class="fas fa-plus me-1"></i>Tambah Jadwal
+                            </a>
                         @endif
                     </div>
                 @elseif(auth()->user()->role === 'Admin')
-                    <div class="mt-3">
+                    <div class="mt-3 d-flex flex-wrap gap-2">
                         <a href="{{ route('jadwal_diniyah.index') }}" class="btn btn-sm btn-outline-light">
                             Buat Jadwal Aktif Dulu
+                        </a>
+                        <a href="{{ route('jadwal_diniyah.index', ['open_add' => 1]) }}" class="btn btn-sm btn-light text-success">
+                            <i class="fas fa-plus me-1"></i>Tambah Jadwal
                         </a>
                     </div>
                 @endif
             </div>
         </div>
     </div>
+
+    @if(session('success'))
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            {{ session('success') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Tutup"></button>
+        </div>
+    @endif
+
+    @if(session('error'))
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            {{ session('error') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Tutup"></button>
+        </div>
+    @endif
+
+    @if($errors->any())
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Periksa form presensi.</strong>
+            <ul class="mb-0 mt-2">
+                @foreach($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Tutup"></button>
+        </div>
+    @endif
 
     <div class="row mb-4">
         <div class="col-md-3">
@@ -299,50 +435,92 @@
                         @csrf
                         
                         <div class="row mb-4 g-3">
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold">
-                                    <i class="fas fa-calendar-check me-2"></i>
-                                    Pilih Jadwal Diniyah
-                                </label>
+                            <div class="col-lg-4">
+                                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-2">
+                                    <label class="form-label fw-bold mb-0">
+                                        <i class="fas fa-calendar-check me-2"></i>
+                                        Pilih Jadwal Diniyah
+                                    </label>
+                                    @if(auth()->user()->role === 'Admin')
+                                        <a href="{{ route('jadwal_diniyah.index', array_filter([
+                                            'tahun_ajaran' => $activeScheduleInfo['tahun_ajaran'] ?? null,
+                                            'semester' => $activeScheduleInfo['semester'] ?? null,
+                                            'open_add' => 1,
+                                        ])) }}" class="btn btn-sm btn-outline-success">
+                                            <i class="fas fa-plus me-1"></i>Tambah Jadwal
+                                        </a>
+                                    @endif
+                                </div>
+                                <div class="jadwal-search-group mb-2">
+                                    <i class="fas fa-search jadwal-search-icon"></i>
+                                    <input type="text"
+                                           id="jadwalSearchInput"
+                                           class="form-control"
+                                           placeholder="Cari nama jadwal...">
+                                </div>
                                 <select name="jadwal_id" id="jadwalSelect" class="form-select form-select-lg" required>
                                     <option value="">-- Pilih Jadwal Diniyah --</option>
                                     @foreach($jadwalData as $jadwal)
+                                        @php
+                                            $namaJadwal = trim((string) ($jadwal->nama_kegiatan ?: $jadwal->kitab?->nama_kitab ?: $jadwal->kitab_id));
+                                            $namaJadwal = $namaJadwal !== '' ? $namaJadwal : 'Jadwal #' . $jadwal->id;
+                                            $jadwalSearchText = trim(implode(' ', array_filter([
+                                                $namaJadwal,
+                                                $jadwal->kitab?->nama_kitab,
+                                                $jadwal->kelas ? 'Kelas ' . $jadwal->kelas : null,
+                                                $jadwal->golongan,
+                                                $jadwal->formatted_tanggal,
+                                                $jadwal->formatted_jam,
+                                            ])));
+                                        @endphp
                                         <option value="{{ $jadwal->id }}"
                                                 data-kelas="{{ $jadwal->kelas }}"
                                                 data-golongan="{{ $jadwal->golongan }}"
+                                                data-search="{{ strtolower($jadwalSearchText) }}"
                                                 {{ (string) $selectedJadwal === (string) $jadwal->id ? 'selected' : '' }}>
-                                            {{ $jadwal->display_label }}
+                                            {{ $namaJadwal }}
                                         </option>
                                     @endforeach
                                 </select>
+                                <div id="jadwalSearchInfo" class="jadwal-search-info mt-1"></div>
                                 @if($jadwalData->isEmpty())
                                     <div class="text-danger small mt-2">
                                         Jadwal aktif belum tersedia. Hubungi admin untuk mengatur jadwal diniyah terlebih dahulu.
                                     </div>
                                 @endif
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4 col-lg-3">
                                 <label class="form-label fw-bold">
                                     <i class="fas fa-school me-2"></i>
-                                    Data Perkelas
+                                    Kelas Diajar
                                 </label>
-                                <select id="kelasFilter" class="form-select" onchange="updateKelasFilter(this.value)">
-                                    <option value="">Semua Kelas</option>
+                                <select id="kelasFilter" name="kelas_mengajar" class="form-select" onchange="updateKelasFilter(this.value)" required>
+                                    <option value="" disabled {{ old('kelas_mengajar', $kelasFilter ?? '') === '' ? 'selected' : '' }}>Pilih Kelas</option>
                                     @foreach(['10', '11', '12'] as $kelasOption)
-                                        <option value="{{ $kelasOption }}" {{ (string) ($kelasFilter ?? '') === $kelasOption ? 'selected' : '' }}>
+                                        <option value="{{ $kelasOption }}" {{ (string) old('kelas_mengajar', $kelasFilter ?? '') === $kelasOption ? 'selected' : '' }}>
                                             Kelas {{ $kelasOption }}
                                         </option>
                                     @endforeach
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4 col-lg-3">
+                                <label class="form-label fw-bold">
+                                    <i class="fas fa-chalkboard-teacher me-2"></i>
+                                    Pengampu
+                                </label>
+                                <div class="form-control bg-light">
+                                    {{ trim((string) (auth()->user()->nama_lengkap ?: auth()->user()->name ?: auth()->user()->email)) }}
+                                </div>
+                                <div class="form-text">Otomatis dari akun yang login.</div>
+                            </div>
+                            <div class="col-md-4 col-lg-3">
                                 <label class="form-label fw-bold">
                                     <i class="fas fa-calendar-day me-2"></i>
                                     Tanggal Presensi
                                 </label>
                                 <input type="date" name="tanggal" class="form-control" value="{{ now('Asia/Jakarta')->format('Y-m-d') }}">
                             </div>
-                            <div class="col-md-12 col-lg-3 d-flex align-items-end">
+                            <div class="col-12 d-flex align-items-end">
                                 <div class="w-100">
                                     <div id="loadingIndicator" class="text-center py-3" style="display: none;">
                                         <div class="spinner-border text-primary" role="status">
@@ -367,9 +545,12 @@
                                         - Kelas {{ $kelasFilter }}
                                     @endif
                                     @if($selectedJadwal && $selectedJadwalData)
+                                            @php
+                                                $selectedJadwalName = trim((string) ($selectedJadwalData->nama_kegiatan ?: $selectedJadwalData->kitab?->nama_kitab ?: $selectedJadwalData->kitab_id));
+                                            @endphp
                                             <small class="d-block mt-1">
                                                 <i class="fas fa-book me-1"></i>
-                                                {{ $selectedJadwalData->display_label }}
+                                                {{ $selectedJadwalName !== '' ? $selectedJadwalName : 'Jadwal #' . $selectedJadwalData->id }}
                                             </small>
                                     @else
                                         <small class="d-block mt-1 text-warning">
@@ -389,7 +570,7 @@
                                         <input type="text"
                                                id="searchSantriDiniyah"
                                                class="form-control"
-                                               placeholder="Cari ID, nama, kelas, atau golongan...">
+                                               placeholder="Cari ID, nama, kelas, golongan, atau pengampu...">
                                     </div>
                                     <div class="col-md-4 text-md-end">
                                         <div class="pagination-summary">
@@ -404,22 +585,35 @@
                             <div class="card-body p-0">
                                 <div class="table-responsive diniyah-table-wrap">
                                     <table class="table page-table mb-0 diniyah-table">
+                                        <colgroup>
+                                            <col class="diniyah-col-id">
+                                            <col class="diniyah-col-nama">
+                                            <col class="diniyah-col-kelas">
+                                            <col class="diniyah-col-golongan">
+                                            <col class="diniyah-col-pengampu">
+                                            <col class="diniyah-col-status">
+                                        </colgroup>
                                         <thead>
                                             <tr>
                                                 <th><i class="fas fa-hashtag me-2"></i>ID Santri</th>
                                                 <th><i class="fas fa-user me-2"></i>Nama</th>
                                                 <th><i class="fas fa-graduation-cap me-2"></i>Kelas</th>
                                                 <th><i class="fas fa-layer-group me-2"></i>Golongan</th>
+                                                <th><i class="fas fa-chalkboard-user me-2"></i>Pengampu</th>
                                                 <th><i class="fas fa-check-circle me-2"></i>Status</th>
                                             </tr>
                                         </thead>
                                         <tbody id="diniyahTableBody">
                                             @foreach($santriList as $santri)
+                                            @php
+                                                $pengampu = trim((string) ($selectedJadwalData->pengampu ?? ''));
+                                            @endphp
                                             <tr class="santri-row"
                                                 data-id="{{ strtolower($santri->id_santri) }}"
                                                 data-nama="{{ strtolower($santri->nama) }}"
                                                 data-kelas="{{ strtolower($santri->kelas) }}"
-                                                data-golongan="{{ strtolower($santri->golongan) }}">
+                                                data-golongan="{{ strtolower($santri->golongan) }}"
+                                                data-pengampu="{{ strtolower($pengampu) }}">
                                                 <td>
                                                     <span class="badge bg-primary fs-6">{{ $santri->id_santri }}</span>
                                                 </td>
@@ -436,6 +630,13 @@
                                                 </td>
                                                 <td>
                                                     <span class="badge bg-warning text-dark">{{ $santri->golongan }}</span>
+                                                </td>
+                                                <td>
+                                                    @if($pengampu !== '')
+                                                        <span class="badge bg-info text-dark">{{ $pengampu }}</span>
+                                                    @else
+                                                        <span class="text-muted">-</span>
+                                                    @endif
                                                 </td>
                                                 <td>
                                                     <div class="status-radio-group">
@@ -504,6 +705,8 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
+    initializeJadwalSearch(jadwalSelectElement);
+
     jadwalSelectElement.addEventListener('change', function() {
         const selectedValue = this.value;
         
@@ -522,6 +725,44 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function initializeJadwalSearch(jadwalSelectElement) {
+    const searchInput = document.getElementById('jadwalSearchInput');
+    const searchInfo = document.getElementById('jadwalSearchInfo');
+
+    if (!searchInput) {
+        return;
+    }
+
+    const options = Array.from(jadwalSelectElement.options).filter((option) => option.value !== '');
+
+    const updateScheduleOptions = () => {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        let visibleCount = 0;
+
+        options.forEach((option) => {
+            const searchText = option.getAttribute('data-search') || option.textContent.toLowerCase();
+            const isSelected = option.value === jadwalSelectElement.value;
+            const isVisible = !searchTerm || searchText.includes(searchTerm);
+
+            option.hidden = !isVisible && !isSelected;
+            option.disabled = !isVisible && !isSelected;
+
+            if (isVisible) {
+                visibleCount += 1;
+            }
+        });
+
+        if (searchInfo) {
+            searchInfo.textContent = searchTerm
+                ? `${visibleCount} jadwal cocok`
+                : '';
+        }
+    };
+
+    searchInput.addEventListener('input', updateScheduleOptions);
+    updateScheduleOptions();
+}
+
 function addQuickSelectButtons() {
     const tableBody = document.querySelector('.page-table tbody');
     if (!tableBody) return;
@@ -529,23 +770,25 @@ function addQuickSelectButtons() {
     const quickSelectRow = document.createElement('tr');
     quickSelectRow.className = 'bg-light quick-select-row';
     quickSelectRow.innerHTML = `
-        <td colspan="4" class="text-center fw-bold">
-            <i class="fas fa-magic me-2"></i>Quick Select:
-        </td>
-        <td>
-            <div class="btn-group btn-group-sm" role="group">
-                <button type="button" class="btn btn-success" onclick="quickSelectAll('Hadir')">
-                    <i class="fas fa-check me-1"></i>Semua Hadir
-                </button>
-                <button type="button" class="btn btn-warning" onclick="quickSelectAll('Izin')">
-                    <i class="fas fa-exclamation me-1"></i>Semua Izin
-                </button>
-                <button type="button" class="btn btn-danger" onclick="quickSelectAll('Alpa')">
-                    <i class="fas fa-times me-1"></i>Semua Alpa
-                </button>
-                <button type="button" class="btn btn-secondary" onclick="clearAll()">
-                    <i class="fas fa-eraser me-1"></i>Clear All
-                </button>
+        <td colspan="6">
+            <div class="quick-select-panel">
+                <span class="quick-select-label fw-bold">
+                    <i class="fas fa-magic me-2"></i>Quick Select:
+                </span>
+                <div class="quick-select-actions" role="group" aria-label="Quick Select Presensi">
+                    <button type="button" class="btn btn-success" onclick="quickSelectAll('Hadir')">
+                        <i class="fas fa-check me-1"></i>Semua Hadir
+                    </button>
+                    <button type="button" class="btn btn-warning" onclick="quickSelectAll('Izin')">
+                        <i class="fas fa-exclamation me-1"></i>Semua Izin
+                    </button>
+                    <button type="button" class="btn btn-danger" onclick="quickSelectAll('Alpa')">
+                        <i class="fas fa-times me-1"></i>Semua Alpa
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="clearAll()">
+                        <i class="fas fa-eraser me-1"></i>Clear All
+                    </button>
+                </div>
             </div>
         </td>
     `;
@@ -638,12 +881,14 @@ function initializeDiniyahPagination() {
             const nama = row.getAttribute('data-nama') || '';
             const kelas = row.getAttribute('data-kelas') || '';
             const golongan = row.getAttribute('data-golongan') || '';
+            const pengampu = row.getAttribute('data-pengampu') || '';
 
             return !searchTerm
                 || id.includes(searchTerm)
                 || nama.includes(searchTerm)
                 || kelas.includes(searchTerm)
-                || golongan.includes(searchTerm);
+                || golongan.includes(searchTerm)
+                || pengampu.includes(searchTerm);
         });
 
         const totalPages = Math.max(1, Math.ceil(filteredRows.length / perPage));

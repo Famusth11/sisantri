@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\JadwalDiniyah;
+use App\Models\JadwalDiniyahHistory;
 use App\Models\KitabDiniyah;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -17,13 +18,20 @@ class JadwalDiniyahController extends Controller
     public function index(Request $request)
     {
         [$tahunAjaran, $semester] = $this->resolvePeriodFilters($request);
+        $filters = $this->resolveScheduleFilters($request);
         $formOptions = $this->buildFormOptions($tahunAjaran);
         $perPage = 10;
 
-        $jadwalList = JadwalDiniyah::query()
+        $jadwalQuery = JadwalDiniyah::query()
             ->with('kitab:id_kitab,nama_kitab,kelas_kitab,pengampu_golongan')
-            ->forPeriod($tahunAjaran, $semester)
+            ->forPeriod($tahunAjaran, $semester);
+
+        $this->applyScheduleFilters($jadwalQuery, $filters);
+
+        $jadwalList = $jadwalQuery
             ->orderByDesc('is_active')
+            ->orderByRaw('tanggal_jadwal IS NULL')
+            ->orderBy('tanggal_jadwal')
             ->orderBy('kelas')
             ->orderBy('golongan')
             ->orderBy('jam_mulai')
@@ -48,11 +56,20 @@ class JadwalDiniyahController extends Controller
             ->selectRaw('SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as total_active')
             ->first();
 
+        $historyList = JadwalDiniyahHistory::query()
+            ->with(['jadwal:id,nama_kegiatan,tahun_ajaran,semester,tanggal_jadwal', 'user:id,name,nama_lengkap'])
+            ->latest()
+            ->limit(8)
+            ->get();
+
         return view('jadwal_diniyah.index', array_merge([
             'jadwalList' => $jadwalList,
             'kitabOptions' => $kitabOptions,
+            'historyList' => $historyList,
             'tahunAjaran' => $tahunAjaran,
             'semester' => $semester,
+            'filters' => $filters,
+            'hasScheduleFilters' => $this->hasScheduleFilters($filters),
             'availableYears' => $formOptions['academicYearOptions'],
             'availableSemesters' => ['Ganjil', 'Genap'],
             'activePeriod' => $activePeriod,
@@ -72,7 +89,8 @@ class JadwalDiniyahController extends Controller
                 ->with('error', 'Jadwal yang sama sudah ada pada periode tersebut.');
         }
 
-        JadwalDiniyah::create($data);
+        $jadwal = JadwalDiniyah::create($data);
+        $this->recordHistory($jadwal, 'created', 'Jadwal diniyah ditambahkan.', null, $this->historySnapshot($jadwal));
         $this->clearJadwalCaches();
 
         return $this->redirectToIndex($data['tahun_ajaran'], $data['semester'])
@@ -94,11 +112,11 @@ class JadwalDiniyahController extends Controller
             'jadwalDiniyah' => $jadwalDiniyah,
             'kitabOptions' => $kitabOptions,
             'availableSemesters' => ['Ganjil', 'Genap'],
-            'returnFilters' => [
+            'returnFilters' => array_merge([
                 'tahun_ajaran' => $selectedYear,
                 'semester' => trim((string) $request->query('semester', $jadwalDiniyah->semester)),
                 'page' => (int) $request->query('page', 1),
-            ],
+            ], array_filter($this->resolveScheduleFilters($request), fn($value) => $value !== null && $value !== '')),
         ], $formOptions));
     }
 
@@ -113,7 +131,11 @@ class JadwalDiniyahController extends Controller
                 ->withInput();
         }
 
+        $oldValues = $this->historySnapshot($jadwalDiniyah);
         $jadwalDiniyah->update($data);
+        $jadwalDiniyah->refresh();
+        $newValues = $this->historySnapshot($jadwalDiniyah);
+        $this->recordHistory($jadwalDiniyah, 'updated', $this->buildUpdateHistoryDescription($oldValues, $newValues), $oldValues, $newValues);
         $this->clearJadwalCaches();
 
         return $this->redirectToIndex($data['tahun_ajaran'], $data['semester'])
@@ -124,10 +146,12 @@ class JadwalDiniyahController extends Controller
     {
         $filters = $this->resolvePeriodFilters($request, $jadwalDiniyah->tahun_ajaran, $jadwalDiniyah->semester);
 
+        $oldValues = $this->historySnapshot($jadwalDiniyah);
+        $this->recordHistory($jadwalDiniyah, 'deleted', 'Jadwal diniyah dihapus.', $oldValues, null);
         $jadwalDiniyah->delete();
         $this->clearJadwalCaches();
 
-        return $this->redirectToIndex($filters[0], $filters[1])
+        return $this->redirectToIndex($filters[0], $filters[1], $this->resolveScheduleFilters($request))
             ->with('success', 'Jadwal diniyah berhasil dihapus.');
     }
 
@@ -166,6 +190,7 @@ class JadwalDiniyahController extends Controller
                 'nama_kegiatan' => $row->nama_kegiatan,
                 'tahun_ajaran' => $validated['target_tahun_ajaran'],
                 'semester' => $validated['target_semester'],
+                'tanggal_jadwal' => $this->formatDateForDatabase($row->tanggal_jadwal),
                 'kelas' => $row->kelas,
                 'golongan' => $row->golongan,
                 'pengampu' => $row->pengampu,
@@ -180,7 +205,8 @@ class JadwalDiniyahController extends Controller
                 continue;
             }
 
-            JadwalDiniyah::create($payload);
+            $newSchedule = JadwalDiniyah::create($payload);
+            $this->recordHistory($newSchedule, 'duplicated', 'Jadwal disalin dari periode ' . $validated['source_tahun_ajaran'] . ' semester ' . $validated['source_semester'] . '.', null, $this->historySnapshot($newSchedule));
             $created++;
         }
 
@@ -300,7 +326,10 @@ class JadwalDiniyahController extends Controller
                 continue;
             }
 
+            $oldValues = $this->historySnapshot($targetRow);
             $targetRow->update($changes);
+            $targetRow->refresh();
+            $this->recordHistory($targetRow, 'assignments_copied', 'Pengampu dan jam disalin dari periode lain.', $oldValues, $this->historySnapshot($targetRow));
             $updated++;
         }
 
@@ -315,13 +344,28 @@ class JadwalDiniyahController extends Controller
     protected function activatePeriodSchedules(string $tahunAjaran, string $semester): int
     {
         $affected = 0;
+        $activatedSchedules = collect();
 
-        DB::transaction(function () use ($tahunAjaran, $semester, &$affected) {
+        DB::transaction(function () use ($tahunAjaran, $semester, &$affected, &$activatedSchedules) {
             JadwalDiniyah::query()->where('is_active', true)->update(['is_active' => false]);
             $affected = JadwalDiniyah::query()
                 ->forPeriod($tahunAjaran, $semester)
                 ->update(['is_active' => true]);
+
+            $activatedSchedules = JadwalDiniyah::query()
+                ->forPeriod($tahunAjaran, $semester)
+                ->get();
         });
+
+        foreach ($activatedSchedules as $schedule) {
+            $this->recordHistory(
+                $schedule,
+                'activated',
+                'Periode jadwal diaktifkan untuk ' . $tahunAjaran . ' semester ' . $semester . '.',
+                null,
+                $this->historySnapshot($schedule)
+            );
+        }
 
         $this->clearJadwalCaches();
 
@@ -335,6 +379,7 @@ class JadwalDiniyahController extends Controller
             'nama_kegiatan' => ['nullable', 'string', 'max:255'],
             'tahun_ajaran' => ['required', 'regex:/^\d{4}\/\d{4}$/'],
             'semester' => ['required', Rule::in(['Ganjil', 'Genap'])],
+            'tanggal_jadwal' => ['nullable', 'date'],
             'kelas' => ['nullable', 'string', 'max:50'],
             'golongan' => ['nullable', 'string', 'max:100'],
             'pengampu' => ['nullable', 'string', 'max:255'],
@@ -345,6 +390,7 @@ class JadwalDiniyahController extends Controller
 
         $validated['kitab_id'] = $this->normalizeOptionalValue($validated['kitab_id'] ?? null);
         $validated['nama_kegiatan'] = $this->normalizeOptionalValue($validated['nama_kegiatan'] ?? null);
+        $validated['tanggal_jadwal'] = $this->normalizeOptionalValue($validated['tanggal_jadwal'] ?? null);
 
         if ($validated['kitab_id'] !== null) {
             $kitab = KitabDiniyah::query()
@@ -391,6 +437,7 @@ class JadwalDiniyahController extends Controller
         $query = JadwalDiniyah::query()
             ->where('tahun_ajaran', $data['tahun_ajaran'])
             ->where('semester', $data['semester'])
+            ->where('tanggal_jadwal', $data['tanggal_jadwal'])
             ->where('nama_kegiatan', $data['nama_kegiatan'])
             ->where('kelas', $data['kelas'])
             ->where('golongan', $data['golongan'])
@@ -408,8 +455,8 @@ class JadwalDiniyahController extends Controller
 
     protected function resolvePeriodFilters(Request $request, ?string $defaultYear = null, ?string $defaultSemester = null): array
     {
-        $tahunAjaran = trim((string) $request->query('tahun_ajaran', $defaultYear ?: JadwalDiniyah::currentAcademicYear()));
-        $semester = trim((string) $request->query('semester', $defaultSemester ?: JadwalDiniyah::currentSemester()));
+        $tahunAjaran = trim((string) $this->requestFilterValue($request, 'tahun_ajaran', $defaultYear ?: JadwalDiniyah::currentAcademicYear()));
+        $semester = trim((string) $this->requestFilterValue($request, 'semester', $defaultSemester ?: JadwalDiniyah::currentSemester()));
 
         if (!preg_match('/^\d{4}\/\d{4}$/', $tahunAjaran)) {
             $tahunAjaran = JadwalDiniyah::currentAcademicYear();
@@ -422,17 +469,85 @@ class JadwalDiniyahController extends Controller
         return [$tahunAjaran, $semester];
     }
 
-    protected function redirectToIndex(string $tahunAjaran, string $semester): RedirectResponse
+    protected function resolveScheduleFilters(Request $request): array
     {
-        return redirect()->route('jadwal_diniyah.index', [
+        $status = trim((string) $this->requestFilterValue($request, 'status', ''));
+        if (!in_array($status, ['active', 'stored'], true)) {
+            $status = '';
+        }
+
+        return [
+            'q' => $this->normalizeOptionalValue($this->requestFilterValue($request, 'q')),
+            'tanggal' => $this->normalizeOptionalValue($this->requestFilterValue($request, 'tanggal')),
+            'kelas' => $this->normalizeOptionalValue($this->requestFilterValue($request, 'kelas')),
+            'golongan' => $this->normalizeOptionalValue($this->requestFilterValue($request, 'golongan')),
+            'pengampu' => $this->normalizeOptionalValue($this->requestFilterValue($request, 'pengampu')),
+            'status' => $status,
+        ];
+    }
+
+    protected function applyScheduleFilters($query, array $filters): void
+    {
+        if ($filters['q'] !== null) {
+            $keyword = $filters['q'];
+            $query->where(function ($innerQuery) use ($keyword) {
+                $innerQuery
+                    ->where('nama_kegiatan', 'like', '%' . $keyword . '%')
+                    ->orWhere('pengampu', 'like', '%' . $keyword . '%')
+                    ->orWhere('keterangan_waktu', 'like', '%' . $keyword . '%')
+                    ->orWhereHas('kitab', function ($kitabQuery) use ($keyword) {
+                        $kitabQuery->where('nama_kitab', 'like', '%' . $keyword . '%');
+                    });
+            });
+        }
+
+        if ($filters['tanggal'] !== null) {
+            $query->whereDate('tanggal_jadwal', $filters['tanggal']);
+        }
+
+        if ($filters['kelas'] !== null) {
+            $query->where('kelas', $filters['kelas']);
+        }
+
+        if ($filters['golongan'] !== null) {
+            $query->where('golongan', strtoupper($filters['golongan']));
+        }
+
+        if ($filters['pengampu'] !== null) {
+            $query->where('pengampu', $filters['pengampu']);
+        }
+
+        if ($filters['status'] === 'active') {
+            $query->where('is_active', true);
+        } elseif ($filters['status'] === 'stored') {
+            $query->where('is_active', false);
+        }
+    }
+
+    protected function hasScheduleFilters(array $filters): bool
+    {
+        return collect($filters)->contains(function ($value): bool {
+            return $value !== null && $value !== '';
+        });
+    }
+
+    protected function requestFilterValue(Request $request, string $key, $default = null)
+    {
+        return $request->query($key, $request->input($key, $default));
+    }
+
+    protected function redirectToIndex(string $tahunAjaran, string $semester, array $filters = []): RedirectResponse
+    {
+        return redirect()->route('jadwal_diniyah.index', array_merge([
             'tahun_ajaran' => $tahunAjaran,
             'semester' => $semester,
-        ]);
+        ], array_filter($filters, fn($value) => $value !== null && $value !== '')));
     }
 
     protected function clearJadwalCaches(): void
     {
         Cache::forget('jadwal_diniyah_active_list');
+        Cache::forget('jadwal_diniyah_active_list_grouped_v2');
         Cache::forget('jadwal_diniyah_active_period');
         Cache::forget('jadwal_diniyah_summary');
     }
@@ -636,6 +751,64 @@ class JadwalDiniyahController extends Controller
         $time = $this->normalizeOptionalValue(is_string($time) ? $time : null);
 
         return $time;
+    }
+
+    protected function formatDateForDatabase($date): ?string
+    {
+        if ($date instanceof \Carbon\CarbonInterface) {
+            return $date->format('Y-m-d');
+        }
+
+        return $this->normalizeOptionalValue(is_string($date) ? $date : null);
+    }
+
+    protected function recordHistory(JadwalDiniyah $jadwal, string $action, ?string $description = null, ?array $oldValues = null, ?array $newValues = null): void
+    {
+        JadwalDiniyahHistory::create([
+            'jadwal_diniyah_id' => $jadwal->id,
+            'action' => $action,
+            'description' => $description,
+            'old_values' => $oldValues,
+            'new_values' => $newValues,
+            'user_id' => auth()->id(),
+        ]);
+    }
+
+    protected function buildUpdateHistoryDescription(array $oldValues, array $newValues): string
+    {
+        $oldPengampu = trim((string) ($oldValues['pengampu'] ?? ''));
+        $newPengampu = trim((string) ($newValues['pengampu'] ?? ''));
+
+        if ($oldPengampu !== $newPengampu) {
+            if ($oldPengampu !== '' && $newPengampu !== '') {
+                return 'Pengampu jadwal diganti dari ' . $oldPengampu . ' menjadi ' . $newPengampu . '.';
+            }
+
+            if ($newPengampu !== '') {
+                return 'Pengampu jadwal ditambahkan: ' . $newPengampu . '.';
+            }
+
+            return 'Pengampu jadwal dihapus dari ' . $oldPengampu . '.';
+        }
+
+        return 'Jadwal diniyah diperbarui.';
+    }
+
+    protected function historySnapshot(JadwalDiniyah $jadwal): array
+    {
+        return [
+            'nama_kegiatan' => $jadwal->nama_kegiatan,
+            'tahun_ajaran' => $jadwal->tahun_ajaran,
+            'semester' => $jadwal->semester,
+            'tanggal_jadwal' => $this->formatDateForDatabase($jadwal->tanggal_jadwal),
+            'kelas' => $jadwal->kelas,
+            'golongan' => $jadwal->golongan,
+            'pengampu' => $jadwal->pengampu,
+            'keterangan_waktu' => $jadwal->keterangan_waktu,
+            'jam_mulai' => $this->formatTimeForDatabase($jadwal->jam_mulai),
+            'jam_selesai' => $this->formatTimeForDatabase($jadwal->jam_selesai),
+            'is_active' => (bool) $jadwal->is_active,
+        ];
     }
 
     protected function assignmentsDiffer(JadwalDiniyah $row, array $changes): bool

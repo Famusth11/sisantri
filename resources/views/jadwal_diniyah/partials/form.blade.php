@@ -4,6 +4,7 @@
     $selectedNama = old('nama_kegiatan', $schedule?->nama_kegiatan);
     $selectedTahunAjaran = old('tahun_ajaran', $schedule?->tahun_ajaran ?? ($tahunAjaran ?? \App\Models\JadwalDiniyah::currentAcademicYear()));
     $selectedSemester = old('semester', $schedule?->semester ?? ($semester ?? \App\Models\JadwalDiniyah::currentSemester()));
+    $selectedTanggalJadwal = old('tanggal_jadwal', $schedule?->tanggal_jadwal?->format('Y-m-d'));
     $selectedKelas = old('kelas', $schedule?->kelas);
     $selectedGolongan = old('golongan', $schedule?->golongan);
     $selectedPengampu = old('pengampu', $schedule?->pengampu);
@@ -100,6 +101,10 @@
             </select>
         </div>
         <div class="col-md-4">
+            <label for="tanggal_jadwal" class="form-label fw-bold">Tanggal Jadwal</label>
+            <input type="date" name="tanggal_jadwal" id="tanggal_jadwal" class="form-control" value="{{ $selectedTanggalJadwal }}">
+        </div>
+        <div class="col-md-4">
             <label for="kelas" class="form-label fw-bold">Kelas</label>
             <select name="kelas" id="kelas" class="form-select">
                 <option value="">Semua kelas yang cocok</option>
@@ -110,7 +115,6 @@
                 @endforeach
             </select>
         </div>
-
         <div class="col-md-4">
             <label for="golongan" class="form-label fw-bold">Golongan</label>
             <select name="golongan" id="golongan" class="form-select">

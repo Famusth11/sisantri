@@ -161,6 +161,11 @@
             <button type="submit" class="btn btn-recap-primary"><i class="fas fa-filter me-1"></i>Filter</button>
         </div>
         <div class="col-12 col-md-auto">
+            <a href="{{ route('absensi.rekapBulananSholat.matrix', ['month' => $month, 'kelas' => $kelasFilter, 'jadwal' => request('jadwal')]) }}" class="btn btn-outline-dark">
+                <i class="fas fa-table me-1"></i>Format Tabel Harian
+            </a>
+        </div>
+        <div class="col-12 col-md-auto">
             <a href="{{ route('absensi.rekapBulananSholat.refresh', ['month' => $month, 'kelas' => $kelasFilter]) }}" 
                class="btn btn-recap-soft" 
                title="Refresh data untuk memuat presensi terbaru">

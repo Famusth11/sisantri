@@ -55,11 +55,13 @@ Route::middleware('auth')->group(function () {
     Route::post('absensi/diniyah', [AbsensiController::class, 'storeDiniyah'])->name('absensi.storeDiniyah');
     Route::get('absensi/refresh', [AbsensiController::class, 'refreshData'])->name('absensi.refresh');
     Route::get('absensi/rekap-bulanan', [AbsensiController::class, 'monthlyRecap'])->name('absensi.rekapBulanan');
+    Route::get('absensi/rekap-bulanan/matriks', [AbsensiController::class, 'monthlyRecapMatrixDiniyah'])->name('absensi.rekapBulanan.matrix');
     Route::get('absensi/rekap-bulanan/refresh', [AbsensiController::class, 'refreshMonthlyRecap'])->name('absensi.rekapBulanan.refresh');
     Route::get('absensi/rekap-bulanan/export-pdf', [AbsensiController::class, 'exportMonthlyRecapPDF'])->name('absensi.rekapBulanan.exportPDF');
     Route::get('absensi/rekap-bulanan/export-excel', [AbsensiController::class, 'exportMonthlyRecapExcel'])->name('absensi.rekapBulanan.exportExcel');
     
     Route::get('absensi/rekap-bulanan-sholat', [AbsensiController::class, 'monthlyRecapSholat'])->name('absensi.rekapBulananSholat');
+    Route::get('absensi/rekap-bulanan-sholat/matriks', [AbsensiController::class, 'monthlyRecapMatrixSholat'])->name('absensi.rekapBulananSholat.matrix');
     Route::get('absensi/rekap-bulanan-sholat/refresh', [AbsensiController::class, 'refreshMonthlyRecapSholat'])->name('absensi.rekapBulananSholat.refresh');
     Route::get('absensi/rekap-bulanan-sholat/export-pdf', [AbsensiController::class, 'exportMonthlyRecapSholatPDF'])->name('absensi.rekapBulananSholat.exportPDF');
     Route::get('absensi/rekap-bulanan-sholat/export-excel', [AbsensiController::class, 'exportMonthlyRecapSholatExcel'])->name('absensi.rekapBulananSholat.exportExcel');

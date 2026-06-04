@@ -160,23 +160,44 @@
             </select>
         </div>
         <div class="col-12 col-md-auto">
+            <label for="jadwal" class="form-label">Jadwal/Kegiatan</label>
+            <select id="jadwal" name="jadwal" class="form-select">
+                <option value="">Semua</option>
+                @foreach($jadwalList as $jadwalOption)
+                    @php
+                        $jadwalOptionValue = preg_replace('/^(Ngaji|Diniyah|Tahfidz|Sholat|Solat)\s+/iu', '', $jadwalOption);
+                        $jadwalOptionValue = strtoupper(trim($jadwalOptionValue));
+                        $jadwalOptionLabel = preg_replace('/^(Ngaji|Diniyah|Tahfidz|Sholat|Solat)\s+/iu', '', $jadwalOption);
+                    @endphp
+                    <option value="{{ $jadwalOptionValue }}" {{ (string)($jadwalFilter ?? '') === (string)$jadwalOptionValue ? 'selected' : '' }}>
+                        {{ $jadwalOptionLabel }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+        <div class="col-12 col-md-auto">
             <button class="btn btn-recap-primary">
                 <i class="fas fa-filter me-1"></i>Tampilkan
             </button>
         </div>
         <div class="col-12 col-md-auto">
-            <a href="{{ route('absensi.rekapBulanan.refresh', ['month' => $month, 'kelas' => $kelasFilter, 'golongan' => $golonganFilter]) }}" 
+            <a href="{{ route('absensi.rekapBulanan.matrix', ['month' => $month, 'kelas' => $kelasFilter, 'jadwal' => $jadwalFilter]) }}" class="btn btn-outline-dark">
+                <i class="fas fa-table me-1"></i>Format Tabel Harian
+            </a>
+        </div>
+        <div class="col-12 col-md-auto">
+            <a href="{{ route('absensi.rekapBulanan.refresh', ['month' => $month, 'kelas' => $kelasFilter, 'golongan' => $golonganFilter, 'jadwal' => $jadwalFilter]) }}" 
                class="btn btn-recap-soft" 
                title="Refresh data untuk memuat presensi terbaru">
                 <i class="fas fa-sync-alt me-1"></i>Refresh Data
             </a>
         </div>
-        @if($kelasFilter || $golonganFilter)
+        @if($kelasFilter || $golonganFilter || ($jadwalFilter ?? ''))
         <div class="col-12 col-xl-auto ms-xl-auto recap-export-group">
-            <a class="btn btn-primary" href="{{ route('absensi.rekapBulanan.exportExcel', ['kelas'=>$kelasFilter,'golongan'=>$golonganFilter,'month'=>$month]) }}">
+            <a class="btn btn-primary" href="{{ route('absensi.rekapBulanan.exportExcel', ['kelas'=>$kelasFilter,'golongan'=>$golonganFilter,'jadwal'=>$jadwalFilter,'month'=>$month]) }}">
                 <i class="fas fa-file-excel me-1"></i>Excel
             </a>
-            <a class="btn btn-danger" href="{{ route('absensi.rekapBulanan.exportPDF', ['kelas'=>$kelasFilter,'golongan'=>$golonganFilter,'month'=>$month]) }}">
+            <a class="btn btn-danger" href="{{ route('absensi.rekapBulanan.exportPDF', ['kelas'=>$kelasFilter,'golongan'=>$golonganFilter,'jadwal'=>$jadwalFilter,'month'=>$month]) }}">
                 <i class="fas fa-file-pdf me-1"></i>PDF
             </a>
         </div>
@@ -213,20 +234,22 @@
 
     @php
         $hasData = false;
-        if ($kelasFilter || $golonganFilter) {
+        if ($kelasFilter || $golonganFilter || ($jadwalFilter ?? '')) {
             $hasData = count($summaryPerSantri) > 0;
         } else {
             $hasData = count($summaryPerSantri) > 0;
         }
     @endphp
 
-    @if(($kelasFilter || $golonganFilter) && !$hasData)
+    @if(($kelasFilter || $golonganFilter || ($jadwalFilter ?? '')) && !$hasData)
         <div class="alert alert-warning">
             <i class="fas fa-info-circle me-2"></i>
             Tidak ada data presensi untuk 
             @if($kelasFilter) <strong>Kelas {{ $kelasFilter }}</strong> @endif
             @if($kelasFilter && $golonganFilter) dan @endif
             @if($golonganFilter) <strong>Golongan {{ $golonganFilter }}</strong> @endif
+            @if(($kelasFilter || $golonganFilter) && ($jadwalFilter ?? '')) dan @endif
+            @if($jadwalFilter ?? '') <strong>Jadwal {{ ucwords(strtolower($jadwalFilter)) }}</strong> @endif
             pada bulan <strong>{{ \Carbon\Carbon::parse($month)->format('F Y') }}</strong>.
         </div>
     @endif
@@ -237,10 +260,10 @@
             <div class="card-header d-flex justify-content-between align-items-center recap-card-header">
                 <strong>Kelas {{ $kelas }}</strong>
                 <div class="recap-class-actions">
-                    <a class="btn btn-sm btn-outline-primary" href="{{ route('absensi.rekapBulanan.exportExcel', ['kelas'=>$kelas,'month'=>$month]) }}">
+                    <a class="btn btn-sm btn-outline-primary" href="{{ route('absensi.rekapBulanan.exportExcel', ['kelas'=>$kelas,'golongan'=>$golonganFilter,'jadwal'=>$jadwalFilter,'month'=>$month]) }}">
                         <i class="fas fa-file-excel me-1"></i>Excel
                     </a>
-                    <a class="btn btn-sm btn-outline-danger" href="{{ route('absensi.rekapBulanan.exportPDF', ['kelas'=>$kelas,'month'=>$month]) }}">
+                    <a class="btn btn-sm btn-outline-danger" href="{{ route('absensi.rekapBulanan.exportPDF', ['kelas'=>$kelas,'golongan'=>$golonganFilter,'jadwal'=>$jadwalFilter,'month'=>$month]) }}">
                         <i class="fas fa-file-pdf me-1"></i>PDF
                     </a>
                 </div>
@@ -296,6 +319,7 @@
                                                             <th class="text-center">Sakit</th>
                                                             <th class="text-center">Alpha</th>
                                                             <th>Kegiatan/Sholat</th>
+                                                            <th>Pengabsen/Pengampu</th>
                                                             <th>Jam</th>
                                                             <th>Status</th>
                                                         </tr>
@@ -347,6 +371,7 @@
                                                                     @php
                                                                         $allKegiatan = [];
                                                                         $jamList = $detail['jam'] ?? [];
+                                                                        $ustadzList = $detail['ustadz'] ?? [];
                                                                         if (isset($detail['kegiatan'])) {
                                                                             foreach ($detail['kegiatan'] as $statusKeg => $kegiatanList) {
                                                                                 if (is_array($kegiatanList)) {
@@ -363,6 +388,17 @@
                                                                                     $displayKegiatan = preg_replace('/^(Ngaji|Diniyah|Tahfidz)\s+/iu', '', $keg);
                                                                                 @endphp
                                                                                 <span class="badge bg-primary">{{ $displayKegiatan }}</span>
+                                                                            @endforeach
+                                                                        </div>
+                                                                    @else
+                                                                        <span class="text-muted">-</span>
+                                                                    @endif
+                                                                </td>
+                                                                <td>
+                                                                    @if(!empty($ustadzList))
+                                                                        <div class="d-flex flex-wrap gap-1">
+                                                                            @foreach($ustadzList as $ustadz)
+                                                                                <span class="badge bg-success">{{ $ustadz }}</span>
                                                                             @endforeach
                                                                         </div>
                                                                     @else
@@ -395,7 +431,7 @@
                                                             </tr>
                                                         @empty
                                                             <tr>
-                                                                <td colspan="8" class="text-center text-muted">
+                                                                <td colspan="9" class="text-center text-muted">
                                                                     <i class="fas fa-info-circle me-2"></i>Tidak ada data kehadiran per hari
                                                                 </td>
                                                             </tr>

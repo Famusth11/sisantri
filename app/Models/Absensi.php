@@ -23,6 +23,8 @@ class Absensi extends Model
         'nama_santri',
         'kelas',
         'golongan',
+        'nama_ustadz',
+        'kelas_mengajar',
     ];
 
     protected $casts = [

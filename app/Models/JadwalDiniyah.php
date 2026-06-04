@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class JadwalDiniyah extends Model
 {
@@ -18,6 +19,7 @@ class JadwalDiniyah extends Model
         'nama_kegiatan',
         'tahun_ajaran',
         'semester',
+        'tanggal_jadwal',
         'kelas',
         'golongan',
         'pengampu',
@@ -29,6 +31,7 @@ class JadwalDiniyah extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'tanggal_jadwal' => 'date',
         'jam_mulai' => 'datetime:H:i:s',
         'jam_selesai' => 'datetime:H:i:s',
     ];
@@ -36,6 +39,11 @@ class JadwalDiniyah extends Model
     public function kitab(): BelongsTo
     {
         return $this->belongsTo(KitabDiniyah::class, 'kitab_id', 'id_kitab');
+    }
+
+    public function histories(): HasMany
+    {
+        return $this->hasMany(JadwalDiniyahHistory::class, 'jadwal_diniyah_id');
     }
 
     public function scopeForPeriod($query, string $tahunAjaran, string $semester)
@@ -57,6 +65,7 @@ class JadwalDiniyah extends Model
         $meta = array_filter([
             $this->kelas ? 'Kelas ' . $this->kelas : null,
             $this->golongan,
+            $this->formatted_tanggal,
             $this->pengampu ? 'Pengampu: ' . $this->pengampu : null,
             $this->formatted_jam,
         ]);
@@ -66,6 +75,11 @@ class JadwalDiniyah extends Model
         }
 
         return implode(' ', $parts);
+    }
+
+    public function getFormattedTanggalAttribute(): ?string
+    {
+        return $this->tanggal_jadwal?->translatedFormat('d M Y');
     }
 
     public function getFormattedJamAttribute(): ?string

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Santri;
 use App\Models\Absensi;
 use App\Models\JadwalDiniyah;
+use App\Models\KitabDiniyah;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,7 +17,7 @@ use Carbon\Carbon;
 class AbsensiController extends Controller
 {
     protected const ATTENDANCE_TIMEZONE = 'Asia/Jakarta';
-    protected const DISPLAY_CACHE_VERSION = 'kegiatan_nama_jam_perf_v4';
+    protected const DISPLAY_CACHE_VERSION = 'kegiatan_nama_jam_perf_v8';
 
     protected function shouldLogDebug(): bool
     {
@@ -30,6 +31,20 @@ class AbsensiController extends Controller
         return Cache::remember($cacheKey, 1800, function () use ($user) {
             return Santri::getAllForUser($user);
         });
+    }
+
+    protected function getCachedDiniyahSantri($user)
+    {
+        if ($user && in_array($user->role, ['Admin', 'Ustadz Pengajar', 'Pembina'], true)) {
+            return Cache::remember('diniyah_santri_all_for_attendance_v1', 1800, function () {
+                return Santri::query()
+                    ->select(Santri::listColumns())
+                    ->orderBy('nama')
+                    ->get();
+            });
+        }
+
+        return $this->getCachedVisibleSantri($user);
     }
 
     protected function getSantriBySelectedClass(?string $kelasFilter, $fallbackCollection = null)
@@ -155,6 +170,7 @@ class AbsensiController extends Controller
             'alpha' => 0,
             'kegiatan' => [],
             'jam' => [],
+            'ustadz' => [],
         ];
     }
 
@@ -203,6 +219,11 @@ class AbsensiController extends Controller
 
                     $dailyRow['jam'] = array_values($dailyRow['jam']);
                     sort($dailyRow['jam']);
+
+                    if (isset($dailyRow['ustadz'])) {
+                        $dailyRow['ustadz'] = array_values($dailyRow['ustadz']);
+                        sort($dailyRow['ustadz']);
+                    }
                 }
                 unset($dailyRow);
             }
@@ -252,6 +273,8 @@ class AbsensiController extends Controller
         foreach ($users as $user) {
             Cache::forget('rekap_sholat_raw_' . $month . '_' . $user->id);
             Cache::forget('rekap_bulanan_raw_' . $month . '_' . $user->id);
+            Cache::forget('rekap_bulanan_raw_with_ustadz_' . $month . '_' . $user->id);
+            Cache::forget('rekap_bulanan_diniyah_raw_with_ustadz_' . $month . '_' . $user->id);
 
             foreach ($kelasOptions as $kelas) {
                 Cache::forget($this->getDisplayCacheKey('rekap_sholat_processed_' . $month . '_' . $user->id . '_' . $kelas));
@@ -276,8 +299,10 @@ class AbsensiController extends Controller
 
             $this->forgetMonthlyRecapCaches($month);
             Cache::forget('diniyah_data_all_santri');
+            Cache::forget('diniyah_santri_all_for_attendance_v1');
             Cache::forget('kitab_diniyah_list');
             Cache::forget('jadwal_diniyah_active_list');
+            Cache::forget('jadwal_diniyah_active_list_grouped_v2');
             Cache::forget('jadwal_diniyah_active_period');
 
             if ($this->shouldLogDebug()) {
@@ -290,7 +315,7 @@ class AbsensiController extends Controller
 
     protected function getActiveJadwalDiniyah()
     {
-        return Cache::remember('jadwal_diniyah_active_list', 1800, function () {
+        return Cache::remember('jadwal_diniyah_active_list_grouped_v2', 1800, function () {
             return JadwalDiniyah::query()
                 ->with('kitab:id_kitab,nama_kitab')
                 ->active()
@@ -298,14 +323,18 @@ class AbsensiController extends Controller
                 ->orderBy('golongan')
                 ->orderBy('jam_mulai')
                 ->orderBy('nama_kegiatan')
-                ->get();
+                ->get()
+                ->unique(function (JadwalDiniyah $jadwal): string {
+                    return $this->jadwalDiniyahDisplayKey($jadwal);
+                })
+                ->values();
         });
     }
 
-    protected function filterSantriByJadwal($santriCollection, JadwalDiniyah $jadwal, ?string $kelasFilter = null): array
+    protected function filterSantriByJadwal($santriCollection, JadwalDiniyah $jadwal, ?string $kelasFilter = null, bool $useJadwalClass = true): array
     {
         $kelasFilter = trim((string) $kelasFilter);
-        $targetClass = trim((string) ($jadwal->kelas ?? ''));
+        $targetClass = $useJadwalClass ? trim((string) ($jadwal->kelas ?? '')) : '';
         $targetGolongan = strtoupper(trim((string) ($jadwal->golongan ?? '')));
 
         return $santriCollection->filter(function ($santri) use ($kelasFilter, $targetClass, $targetGolongan) {
@@ -332,6 +361,13 @@ class AbsensiController extends Controller
 
             return strtoupper(trim((string) ($santri->golongan ?? ''))) === $targetGolongan;
         })->values()->all();
+    }
+
+    protected function jadwalDiniyahDisplayKey(JadwalDiniyah $jadwal): string
+    {
+        $namaJadwal = trim((string) ($jadwal->nama_kegiatan ?: $jadwal->kitab?->nama_kitab ?: $jadwal->kitab_id));
+
+        return strtoupper($namaJadwal);
     }
 
     public function sholat(Request $request)
@@ -398,7 +434,7 @@ class AbsensiController extends Controller
         $user = Auth::user();
         $kelasFilter = trim((string) $request->query('kelas', ''));
         $jadwalData = $this->getActiveJadwalDiniyah();
-        $allSantriData = $this->getCachedVisibleSantri($user);
+        $allSantriData = $this->getCachedDiniyahSantri($user);
 
         $santriList = [];
         $selectedJadwal = trim((string) $request->query('jadwal_id', ''));
@@ -417,7 +453,7 @@ class AbsensiController extends Controller
             $selectedJadwalData = $jadwalData->firstWhere('id', (int) $selectedJadwal);
 
             if ($selectedJadwalData) {
-                $santriList = $this->filterSantriByJadwal($allSantriData, $selectedJadwalData, $kelasFilter);
+                $santriList = $this->filterSantriByJadwal($allSantriData, $selectedJadwalData, $kelasFilter, false);
             }
         }
 
@@ -431,10 +467,13 @@ class AbsensiController extends Controller
             'jadwal_id' => 'required|integer',
             'absensi' => 'required|array',  
             'tanggal' => 'nullable|date',
+            'kelas_mengajar' => 'required|in:10,11,12',
         ]);
 
         $user = Auth::user();
         $timestamp = $this->buildAttendanceTimestamp($request->input('tanggal'));
+        $kelasMengajar = trim((string) $request->input('kelas_mengajar'));
+        $namaUstadz = $this->resolveLoggedInPengampuName($user);
         $jadwal = JadwalDiniyah::query()
             ->active()
             ->with('kitab:id_kitab,nama_kitab')
@@ -450,8 +489,8 @@ class AbsensiController extends Controller
         $recordedAt = Carbon::now(static::ATTENDANCE_TIMEZONE);
 
         
-        $allSantriData = $this->getCachedVisibleSantri($user);
-        $allowedSantriData = collect($this->filterSantriByJadwal($allSantriData, $jadwal));
+        $allSantriData = $this->getCachedDiniyahSantri($user);
+        $allowedSantriData = collect($this->filterSantriByJadwal($allSantriData, $jadwal, $kelasMengajar, false));
         $visibleSantriIds = $this->buildVisibleSantriIdSet($allowedSantriData);
 
         $santriLookup = $allowedSantriData->keyBy('id_santri');
@@ -475,6 +514,8 @@ class AbsensiController extends Controller
                 'kegiatan' => $kegiatan,
                 'status' => strtoupper($status),
                 'petugas_id' => $petugasId,
+                'nama_ustadz' => $namaUstadz,
+                'kelas_mengajar' => $kelasMengajar,
                 'nama_santri' => $santri->nama,
                 'kelas' => $santri->kelas,
                 'golongan' => $santri->golongan,
@@ -497,7 +538,7 @@ class AbsensiController extends Controller
             
             $this->clearAbsensiCache();
             
-            return redirect()->back()->with('success', count($absensiRecords) . ' absensi Diniyah berhasil dicatat untuk jadwal: ' . $namaKitab);
+            return redirect()->back()->with('success', count($absensiRecords) . ' absensi Diniyah berhasil dicatat untuk jadwal: ' . $namaKitab . ' kelas ' . $kelasMengajar . ' oleh ' . $namaUstadz);
         } catch (\Exception $e) {
             Log::error('Store Diniyah Error: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Gagal simpan absensi: ' . $e->getMessage());
@@ -622,9 +663,10 @@ class AbsensiController extends Controller
         $month = $request->get('month', Carbon::now()->format('Y-m'));
         $kelasFilter = $request->get('kelas');
         $golonganFilter = $request->get('golongan');
+        $jadwalFilter = $this->normalizeRecapJadwalFilter($request->get('jadwal'));
 
         
-        $cacheKey = $this->getDisplayCacheKey('rekap_bulanan_processed_' . $month . '_' . $user->id . '_' . ($kelasFilter ?? 'all') . '_' . ($golonganFilter ?? 'all'));
+        $cacheKey = $this->getDisplayCacheKey('rekap_bulanan_processed_' . $month . '_' . $user->id . '_' . ($kelasFilter ?? 'all') . '_' . ($golonganFilter ?? 'all') . '_' . ($jadwalFilter ?: 'all_jadwal'));
         
         
         $cachedResult = Cache::get($cacheKey);
@@ -644,24 +686,38 @@ class AbsensiController extends Controller
                 'month' => $month,
                 'kelasFilter' => $kelasFilter,
                 'golonganFilter' => $golonganFilter,
+                'jadwalFilter' => $jadwalFilter,
+                'jadwalList' => $this->getRecapJadwalOptions(),
                 'kelasList' => ['10', '11', '12'],
                 'golonganList' => [],
                 'summaryPerSantri' => [],
             ];
         }
 
-        $rawCacheKey = 'rekap_bulanan_raw_' . $month . '_' . $user->id;
+        $rawCacheKey = 'rekap_bulanan_diniyah_raw_with_ustadz_' . $month . '_' . $user->id;
         $attendanceData = Cache::remember($rawCacheKey, 1800, function () use ($month, $allVisibleSantriIds) {
             return Absensi::forMonth($month)
-                ->select('id', 'timestamp', 'created_at', 'santri_id', 'kegiatan', 'status')
+                ->select('id', 'timestamp', 'created_at', 'santri_id', 'kegiatan', 'status', 'nama_ustadz', 'petugas_id')
                 ->whereIn('santri_id', $allVisibleSantriIds)
+                ->where(function ($query) {
+                    $query->where('kegiatan', 'like', 'Ngaji%')
+                        ->orWhere('kegiatan', 'like', 'Diniyah%')
+                        ->orWhere('kegiatan', 'like', 'Tahfidz%');
+                })
                 ->orderBy('timestamp')
                 ->get();
         });
 
+        $jadwalList = $this->getRecapJadwalOptions($attendanceData);
+
         
         $summaryPerSantri = [];
         foreach ($attendanceData as $row) {
+            $kegiatan = Absensi::formatKegiatanLabel($row->kegiatan);
+            if ($jadwalFilter !== '' && $this->normalizeRecapJadwalFilter($kegiatan) !== $jadwalFilter) {
+                continue;
+            }
+
             $santriId = $row->santri_id;
             $status = strtoupper(trim($row->status));
             
@@ -690,8 +746,8 @@ class AbsensiController extends Controller
             }
 
             
-            $kegiatan = Absensi::formatKegiatanLabel($row->kegiatan);
             $jamAbsen = Absensi::resolveAttendanceTime($row->timestamp, $row->created_at);
+            $namaPengabsen = trim((string) ($row->nama_ustadz ?: $row->petugas_id));
             if (!isset($summaryPerSantri[$kelas][$santriId]['detail_per_hari'][$tanggalAbsen]['kegiatan'][$status])) {
                 $summaryPerSantri[$kelas][$santriId]['detail_per_hari'][$tanggalAbsen]['kegiatan'][$status] = [];
             }
@@ -701,6 +757,7 @@ class AbsensiController extends Controller
 
             $this->addUniqueSummaryValue($dailySummary['kegiatan'][$status], $kegiatan);
             $this->addUniqueSummaryValue($dailySummary['jam'], $jamAbsen);
+            $this->addUniqueSummaryValue($dailySummary['ustadz'], $namaPengabsen);
             $this->incrementAttendanceCounters($summaryRow, $dailySummary, $status);
 
             unset($dailySummary, $summaryRow);
@@ -736,6 +793,7 @@ class AbsensiController extends Controller
                 'month' => $month,
                 'kelasFilter' => $kelasFilter,
                 'golonganFilter' => $golonganFilter,
+                'jadwalFilter' => $jadwalFilter,
                 'kelas_count' => count($kelasList),
                 'santri_count' => array_sum(array_map('count', $summaryPerSantri)),
             ]);
@@ -745,6 +803,8 @@ class AbsensiController extends Controller
             'month' => $month,
             'kelasFilter' => $kelasFilter,
             'golonganFilter' => $golonganFilter,
+            'jadwalFilter' => $jadwalFilter,
+            'jadwalList' => $jadwalList,
             'kelasList' => $kelasList,
             'golonganList' => $golonganList,
             'summaryPerSantri' => $summaryPerSantri,
@@ -756,10 +816,244 @@ class AbsensiController extends Controller
         return $result;
     }
 
+    protected function normalizeRecapJadwalFilter(?string $value): string
+    {
+        $value = trim((string) $value);
+        $value = preg_replace('/^(Ngaji|Diniyah|Tahfidz|Sholat|Solat)\s+/iu', '', $value) ?? $value;
+
+        return strtoupper(trim($value));
+    }
+
+    protected function getRecapJadwalOptions($attendanceData = null): array
+    {
+        $activeJadwalList = $this->getActiveJadwalDiniyah()
+            ->map(fn (JadwalDiniyah $jadwal) => $this->formatJadwalDiniyahName($jadwal));
+
+        $allScheduleNames = JadwalDiniyah::query()
+            ->whereNotNull('nama_kegiatan')
+            ->distinct()
+            ->pluck('nama_kegiatan');
+
+        $masterKitabNames = KitabDiniyah::query()
+            ->whereNotNull('nama_kitab')
+            ->distinct()
+            ->pluck('nama_kitab');
+
+        $recordedJadwalList = collect($attendanceData ?? [])
+            ->map(fn ($row) => Absensi::formatKegiatanLabel($row->kegiatan));
+
+        return $activeJadwalList
+            ->merge($allScheduleNames)
+            ->merge($masterKitabNames)
+            ->merge($recordedJadwalList)
+            ->filter(fn ($value) => trim((string) $value) !== '')
+            ->unique(fn ($value) => $this->normalizeRecapJadwalFilter($value))
+            ->sortBy(fn ($value) => $value, SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->all();
+    }
+
+    protected function formatJadwalDiniyahName(JadwalDiniyah $jadwal): string
+    {
+        return trim((string) ($jadwal->nama_kegiatan ?: $jadwal->kitab?->nama_kitab ?: $jadwal->kitab_id));
+    }
+
+    protected function resolveLoggedInPengampuName($user): string
+    {
+        $name = trim((string) ($user->nama_lengkap ?: $user->name ?: $user->email));
+
+        return $name !== '' ? $name : 'Pengampu';
+    }
+
     public function monthlyRecap(Request $request)
     {
         $data = $this->getMonthlyRecapData($request);
         return view('absensi.rekap_bulanan', $data);
+    }
+
+    public function monthlyRecapMatrixDiniyah(Request $request)
+    {
+        return view('absensi.rekap_matrix', $this->getMonthlyMatrixRecapData($request, 'diniyah'));
+    }
+
+    public function monthlyRecapMatrixSholat(Request $request)
+    {
+        return view('absensi.rekap_matrix', $this->getMonthlyMatrixRecapData($request, 'sholat'));
+    }
+
+    public function exportMonthlyRecapMatrixDiniyahExcel(Request $request)
+    {
+        return $this->exportMonthlyRecapMatrixExcel($request, 'diniyah');
+    }
+
+    public function exportMonthlyRecapMatrixSholatExcel(Request $request)
+    {
+        return $this->exportMonthlyRecapMatrixExcel($request, 'sholat');
+    }
+
+    public function exportMonthlyRecapMatrixDiniyahPDF(Request $request)
+    {
+        return $this->exportMonthlyRecapMatrixPDF($request, 'diniyah');
+    }
+
+    public function exportMonthlyRecapMatrixSholatPDF(Request $request)
+    {
+        return $this->exportMonthlyRecapMatrixPDF($request, 'sholat');
+    }
+
+    protected function exportMonthlyRecapMatrixExcel(Request $request, string $type)
+    {
+        $data = $this->getMonthlyMatrixRecapData($request, $type);
+        $filename = $this->matrixExportFilename($data, 'xlsx');
+
+        return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\RekapMatrixExport($data), $filename);
+    }
+
+    protected function exportMonthlyRecapMatrixPDF(Request $request, string $type)
+    {
+        $data = $this->getMonthlyMatrixRecapData($request, $type);
+        $filename = $this->matrixExportFilename($data, 'pdf');
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('absensi.rekap_matrix_pdf', $data)
+            ->setPaper('a4', 'landscape');
+
+        return $pdf->download($filename);
+    }
+
+    protected function matrixExportFilename(array $data, string $extension): string
+    {
+        $parts = [
+            'rekap_matriks',
+            $data['type'],
+            strtolower($data['jadwalFilter'] ?: 'semua'),
+            $data['kelasFilter'] ? 'kelas_' . $data['kelasFilter'] : 'semua_kelas',
+            $data['jenisKelaminFilter'] ? strtolower($data['jenisKelaminFilter']) : 'semua',
+            $data['month'],
+        ];
+
+        return preg_replace('/[^a-z0-9_\-\.]+/i', '_', implode('_', $parts)) . '.' . $extension;
+    }
+
+    protected function getMonthlyMatrixRecapData(Request $request, string $type): array
+    {
+        $user = Auth::user();
+        $month = $request->get('month', Carbon::now()->format('Y-m'));
+        $kelasFilter = trim((string) $request->get('kelas', ''));
+        $jenisKelaminFilter = ucfirst(strtolower(trim((string) $request->get('jenis_kelamin', ''))));
+        if (!in_array($jenisKelaminFilter, ['Putra', 'Putri'], true)) {
+            $jenisKelaminFilter = '';
+        }
+        $jadwalFilter = $this->normalizeRecapJadwalFilter($request->get('jadwal'));
+        $monthDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+        $daysInMonth = $monthDate->daysInMonth;
+
+        $allSantri = $this->getCachedDiniyahSantri($user);
+        $filteredSantri = $this->filterSantriCollection($allSantri, $kelasFilter);
+        if ($jenisKelaminFilter !== '') {
+            $filteredSantri = $filteredSantri
+                ->filter(fn ($santri) => strtolower(trim((string) ($santri->jenis_kelamin ?? ''))) === strtolower($jenisKelaminFilter))
+                ->values();
+        }
+        $santriLookup = $this->buildSantriLookup($filteredSantri);
+        $visibleSantriIds = array_keys($santriLookup);
+
+        $query = Absensi::forMonth($month)
+            ->select('id', 'timestamp', 'santri_id', 'kegiatan', 'status', 'nama_ustadz', 'petugas_id')
+            ->whereIn('santri_id', $visibleSantriIds);
+
+        if ($type === 'diniyah') {
+            $query->where(function ($builder) {
+                $builder->where('kegiatan', 'like', 'Ngaji%')
+                    ->orWhere('kegiatan', 'like', 'Diniyah%')
+                    ->orWhere('kegiatan', 'like', 'Tahfidz%');
+            });
+            $jadwalOptions = $this->getRecapJadwalOptions();
+        } else {
+            $query->where(function ($builder) {
+                $builder->where('kegiatan', 'like', 'Sholat%')
+                    ->orWhere('kegiatan', 'like', 'Solat%');
+            });
+            $jadwalOptions = $this->getSholatRecapOptions();
+        }
+
+        $attendanceData = $query->orderBy('timestamp')->get();
+
+        $matrixRows = [];
+        foreach ($filteredSantri as $santri) {
+            $matrixRows[(string) $santri->id_santri] = [
+                'nama' => $santri->nama,
+                'kelas' => (string) $santri->kelas,
+                'days' => array_fill(1, $daysInMonth, ''),
+                'pengampu' => [],
+            ];
+        }
+
+        foreach ($attendanceData as $row) {
+            $kegiatan = Absensi::formatKegiatanLabel($row->kegiatan);
+            if ($jadwalFilter !== '' && $this->normalizeRecapJadwalFilter($kegiatan) !== $jadwalFilter) {
+                continue;
+            }
+
+            $santriId = (string) $row->santri_id;
+            if (!isset($matrixRows[$santriId])) {
+                continue;
+            }
+
+            $day = (int) $row->timestamp->format('j');
+            $matrixRows[$santriId]['days'][$day] = $this->statusMatrixLabel($row->status);
+
+            $pengampu = trim((string) ($row->nama_ustadz ?: $row->petugas_id));
+            if ($pengampu !== '') {
+                $matrixRows[$santriId]['pengampu'][$pengampu] = $pengampu;
+            }
+        }
+
+        foreach ($matrixRows as &$row) {
+            $row['pengampu'] = array_values($row['pengampu']);
+        }
+        unset($row);
+
+        $pengampuList = collect($matrixRows)
+            ->flatMap(fn ($row) => $row['pengampu'] ?? [])
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        return [
+            'type' => $type,
+            'title' => $type === 'diniyah' ? 'Rekap Matriks Diniyah' : 'Rekap Matriks Sholat',
+            'headerTitle' => $jadwalFilter
+                ? 'ABSENSI ' . ucwords(strtolower($jadwalFilter))
+                : ($type === 'diniyah' ? 'ABSENSI KEGIATAN DINIYAH' : 'ABSENSI SHOLAT'),
+            'month' => $month,
+            'monthLabel' => $monthDate->locale('id')->translatedFormat('F Y'),
+            'daysInMonth' => $daysInMonth,
+            'kelasFilter' => $kelasFilter,
+            'kelasList' => ['10', '11', '12'],
+            'jenisKelaminFilter' => $jenisKelaminFilter,
+            'jenisKelaminList' => ['Putra', 'Putri'],
+            'jadwalFilter' => $jadwalFilter,
+            'jadwalList' => $jadwalOptions,
+            'pengampuList' => $pengampuList,
+            'rows' => array_values($matrixRows),
+        ];
+    }
+
+    protected function statusMatrixLabel(?string $status): string
+    {
+        return match (strtoupper(trim((string) $status))) {
+            'HADIR' => 'H',
+            'IZIN' => 'I',
+            'SAKIT' => 'S',
+            'ALPA', 'ALPHA' => 'A',
+            default => '',
+        };
+    }
+
+    protected function getSholatRecapOptions(): array
+    {
+        return ['Subuh', 'Asar', 'Maghrib', 'Isya'];
     }
 
     
@@ -772,7 +1066,8 @@ class AbsensiController extends Controller
         return redirect()->route('absensi.rekapBulanan', [
             'month' => $month,
             'kelas' => $request->get('kelas'),
-            'golongan' => $request->get('golongan')
+            'golongan' => $request->get('golongan'),
+            'jadwal' => $request->get('jadwal'),
         ])->with('success', 'Data berhasil diperbarui!');
     }
 
@@ -782,7 +1077,8 @@ class AbsensiController extends Controller
         $month = $request->get('month', Carbon::now()->format('Y-m'));
         $kelas = $request->get('kelas');
         $golongan = $request->get('golongan');
-        $request->merge(['month' => $month, 'kelas' => $kelas, 'golongan' => $golongan]);
+        $jadwal = $request->get('jadwal');
+        $request->merge(['month' => $month, 'kelas' => $kelas, 'golongan' => $golongan, 'jadwal' => $jadwal]);
 
         
         $data = $this->getMonthlyRecapData($request);
@@ -860,7 +1156,8 @@ class AbsensiController extends Controller
         $month = $request->get('month', Carbon::now()->format('Y-m'));
         $kelas = $request->get('kelas');
         $golongan = $request->get('golongan');
-        $request->merge(['month' => $month, 'kelas' => $kelas, 'golongan' => $golongan]);
+        $jadwal = $request->get('jadwal');
+        $request->merge(['month' => $month, 'kelas' => $kelas, 'golongan' => $golongan, 'jadwal' => $jadwal]);
 
         
         try {

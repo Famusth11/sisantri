@@ -124,6 +124,7 @@ class JadwalDiniyahManagementTest extends TestCase
             'nama_kegiatan' => 'Fathul Qorib',
             'tahun_ajaran' => '2026/2027',
             'semester' => 'Ganjil',
+            'tanggal_jadwal' => '2026-08-12',
             'kelas' => '10',
             'golongan' => 'BILINGUAL',
             'pengampu' => 'Ustadz Ahmad',
@@ -144,9 +145,16 @@ class JadwalDiniyahManagementTest extends TestCase
             'nama_kegiatan' => 'Fathul Qorib',
             'tahun_ajaran' => '2026/2027',
             'semester' => 'Ganjil',
+            'tanggal_jadwal' => '2026-08-12 00:00:00',
             'pengampu' => 'Ustadz Ahmad',
             'keterangan_waktu' => 'Diniyah Sore',
             'is_active' => false,
+        ]);
+
+        $this->assertDatabaseHas('jadwal_diniyah_histories', [
+            'jadwal_diniyah_id' => $jadwal->id,
+            'action' => 'created',
+            'user_id' => $admin->id,
         ]);
 
         $activateResponse = $this->actingAs($admin)->post(route('jadwal_diniyah.activate'), [
@@ -163,6 +171,109 @@ class JadwalDiniyahManagementTest extends TestCase
             'id' => $jadwal->id,
             'is_active' => true,
         ]);
+
+        $this->assertDatabaseHas('jadwal_diniyah_histories', [
+            'jadwal_diniyah_id' => $jadwal->id,
+            'action' => 'activated',
+            'user_id' => $admin->id,
+        ]);
+    }
+
+    public function test_jadwal_index_shows_schedule_date_and_latest_history(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'Admin',
+            'nama_lengkap' => 'Admin History',
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('jadwal_diniyah.store'), [
+            'kitab_id' => null,
+            'nama_kegiatan' => 'Balaghah',
+            'tahun_ajaran' => '2026/2027',
+            'semester' => 'Ganjil',
+            'tanggal_jadwal' => '2026-09-15',
+            'kelas' => '12',
+            'golongan' => 'TAHFIDZ',
+            'pengampu' => 'Ustadz History',
+            'keterangan_waktu' => 'Diniyah Malam',
+            'jam_mulai' => '19:00',
+            'jam_selesai' => '20:00',
+        ]);
+
+        $response->assertRedirect(route('jadwal_diniyah.index', [
+            'tahun_ajaran' => '2026/2027',
+            'semester' => 'Ganjil',
+        ], false));
+
+        $page = $this->actingAs($admin)->get(route('jadwal_diniyah.index', [
+            'tahun_ajaran' => '2026/2027',
+            'semester' => 'Ganjil',
+        ]));
+
+        $page->assertOk();
+        $page->assertSee('15 Sep 2026');
+        $page->assertSee('History Terbaru');
+        $page->assertSee('Balaghah');
+        $page->assertSee('Ditambahkan');
+        $page->assertSee('Oleh: Admin History');
+    }
+
+    public function test_jadwal_index_filters_by_search_date_class_group_teacher_and_status(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'Admin',
+            'nama_lengkap' => 'Admin Filter',
+        ]);
+
+        JadwalDiniyah::create([
+            'kitab_id' => 'KD101',
+            'nama_kegiatan' => 'Nahwu Lanjutan',
+            'tahun_ajaran' => '2026/2027',
+            'semester' => 'Ganjil',
+            'tanggal_jadwal' => '2026-09-15',
+            'kelas' => '11',
+            'golongan' => 'BILINGUAL',
+            'pengampu' => 'Ustadz Filter',
+            'keterangan_waktu' => 'Diniyah Sore',
+            'jam_mulai' => '18:00:00',
+            'jam_selesai' => '19:00:00',
+            'is_active' => true,
+        ]);
+
+        JadwalDiniyah::create([
+            'kitab_id' => 'KD102',
+            'nama_kegiatan' => 'Balaghah Dasar',
+            'tahun_ajaran' => '2026/2027',
+            'semester' => 'Ganjil',
+            'tanggal_jadwal' => '2026-09-16',
+            'kelas' => '12',
+            'golongan' => 'TAHFIDZ',
+            'pengampu' => 'Ustadz Lain',
+            'keterangan_waktu' => 'Diniyah Malam',
+            'jam_mulai' => '19:00:00',
+            'jam_selesai' => '20:00:00',
+            'is_active' => false,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('jadwal_diniyah.index', [
+            'tahun_ajaran' => '2026/2027',
+            'semester' => 'Ganjil',
+            'q' => 'Nahwu',
+            'tanggal' => '2026-09-15',
+            'kelas' => '11',
+            'golongan' => 'BILINGUAL',
+            'pengampu' => 'Ustadz Filter',
+            'status' => 'active',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Nahwu Lanjutan');
+        $response->assertSee('15 Sep 2026');
+        $response->assertDontSee('Balaghah Dasar');
+        $response->assertSee('value="Nahwu"', false);
+        $response->assertSee('value="2026-09-15"', false);
+        $response->assertSee('Filter');
+        $response->assertSee('Aktif');
     }
 
     public function test_active_schedule_is_shown_and_used_on_diniyah_page(): void
